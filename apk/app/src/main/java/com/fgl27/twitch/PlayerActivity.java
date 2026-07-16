@@ -246,7 +246,7 @@ public class PlayerActivity extends Activity {
 
     private final ProgressBar[] loadingView = new ProgressBar[PlayerAccount + 3];
 
-    private boolean IsUsingSurfaceView;
+    private boolean PlayerSurfaceWorkaroundEnabled;
     private boolean reUsePlayer = true;
 
     //TODO some day convert js to use 0 = live, 1 = vod, 2 = clip, as today is  1 2 3
@@ -436,7 +436,7 @@ public class PlayerActivity extends Activity {
             VideoHolder = findViewById(R.id.videoholder);
             VideoWebHolder = findViewById(R.id.videowebholder);
 
-            setPlayerSurface(true);
+            UpdatePlayerSurfaceMode();
 
             DeviceRam = Tools.DeviceRam(this);
 
@@ -476,33 +476,58 @@ public class PlayerActivity extends Activity {
         warning.setTextSize(TypedValue.COMPLEX_UNIT_DIP, textSize);
     }
 
-    public void setPlayerSurface(boolean surface_view) {
-        IsUsingSurfaceView = surface_view;
+    private void setPlayerSurface(int position, boolean surfaceView) {
+        PlayerView oldPlayerView = PlayerObj[position].playerView;
+        int viewPairPosition = position;
 
-        int[] idGone = idTexture, idVisible = idSurface;
-        //Some old devices (old OS N or older) is need to use texture_view to have a proper working PP mode
-        if (!surface_view) {
-            idGone = idSurface;
-            idVisible = idTexture;
+        //PlayerObj entries can be reordered when the main player changes. Keep using the
+        //SurfaceView/TextureView pair that belongs to the player's current view.
+        if (oldPlayerView != null) {
+            for (int i = 0; i < PlayerAccountPlus; i++) {
+                if (oldPlayerView.getId() == idSurface[i] || oldPlayerView.getId() == idTexture[i]) {
+                    viewPairPosition = i;
+                    break;
+                }
+            }
         }
 
+        PlayerView newPlayerView = findViewById(surfaceView ? idSurface[viewPairPosition] : idTexture[viewPairPosition]);
+        if (oldPlayerView == newPlayerView) return;
+
+        if (oldPlayerView != null) {
+            int visibility = oldPlayerView.getVisibility();
+            ViewGroup.LayoutParams layoutParams = oldPlayerView.getLayoutParams();
+
+            if (PlayerObj[position].player != null) {
+                PlayerView.switchTargetView(PlayerObj[position].player, oldPlayerView, newPlayerView);
+            }
+
+            oldPlayerView.setVisibility(View.GONE);
+            newPlayerView.setLayoutParams(layoutParams);
+            newPlayerView.setVisibility(visibility);
+        } else {
+            newPlayerView.setVisibility(position == 0 ? View.VISIBLE : View.GONE);
+        }
+
+        PlayerObj[position].playerView = newPlayerView;
+
+        loadingView[position] = newPlayerView.findViewById(androidx.media3.ui.R.id.exo_buffering);
+        loadingView[position].setIndeterminateTintList(ColorStateList.valueOf(Color.WHITE));
+        loadingView[position].setBackgroundResource(R.drawable.shadow);
+        loadingView[position].setLayoutParams(DefaultLoadingLayout);
+    }
+
+    private void UpdatePlayerSurfaceMode() {
         for (int i = 0; i < PlayerAccountPlus; i++) {
-            PlayerObj[i].playerView = findViewById(idGone[i]);
-            PlayerObj[i].playerView.setVisibility(View.GONE);
-            PlayerObj[i].playerView = findViewById(idVisible[i]);
+            //With the workaround enabled, keep the main video on SurfaceView for quality
+            //and use TextureView only for secondary videos and previews.
+            setPlayerSurface(i, !PlayerSurfaceWorkaroundEnabled || i == 0);
         }
+    }
 
-        PlayerObj[0].playerView.setVisibility(View.VISIBLE);
-        for (int i = 1; i < PlayerAccountPlus; i++) {
-            PlayerObj[i].playerView.setVisibility(View.GONE);
-        }
-
-        for (int i = 0; i < PlayerAccountPlus; i++) {
-            loadingView[i] = PlayerObj[i].playerView.findViewById(androidx.media3.ui.R.id.exo_buffering);
-            loadingView[i].setIndeterminateTintList(ColorStateList.valueOf(Color.WHITE));
-            loadingView[i].setBackgroundResource(R.drawable.shadow);
-            loadingView[i].setLayoutParams(DefaultLoadingLayout);
-        }
+    private boolean isUsingSurfaceView(int position) {
+        return PlayerObj[position].playerView != null &&
+            PlayerObj[position].playerView.getVideoSurfaceView() instanceof SurfaceView;
     }
 
     private boolean AllMainPlayerInUse() {
@@ -638,6 +663,7 @@ public class PlayerActivity extends Activity {
         PlayerObj[PlayerObjPosition].player.setMediaSource(PlayerObj[PlayerObjPosition].mediaSources, PlayerObj[PlayerObjPosition].ResumePosition);
 
         PlayerObj[PlayerObjPosition].player.prepare();
+        UpdatePlayerSurfaceMode();
 
         KeepScreenOn(true);
 
@@ -687,7 +713,7 @@ public class PlayerActivity extends Activity {
         VideoHolder.bringChildToFront(PlayerObj[1].playerView);
 
         //Reset the Z position of the PP player so it show above the other
-        if (IsUsingSurfaceView) {
+        if (isUsingSurfaceView(0) && isUsingSurfaceView(1)) {
             PlayerView ViewOnTop = PlayerObj[1].playerView;
             PlayerView ViewOnBottom = PlayerObj[0].playerView;
 
@@ -726,7 +752,7 @@ public class PlayerActivity extends Activity {
         //Try to prevent... The specified child already has a parent. You must call removeView() on the child's parent first.
         try {
             //This also prevent the SurfaceView not be visible on the same situation
-            if (IsUsingSurfaceView) {
+            if (isUsingSurfaceView(4)) {
                 PreviewHolder.removeView(PlayerObj[4].playerView);
                 PreviewHolder.addView(PlayerObj[4].playerView);
             }
@@ -736,6 +762,7 @@ public class PlayerActivity extends Activity {
         SmallPlayerCurrentPosition = 0L;
 
         PlayerObj[4].ResumePosition = 0L;
+        UpdatePlayerSurfaceMode();
         CheckKeepScreenOn();
     }
 
@@ -746,6 +773,7 @@ public class PlayerActivity extends Activity {
 
         releasePlayer(position);
 
+        UpdatePlayerSurfaceMode();
         CheckKeepScreenOn();
     }
 
@@ -767,6 +795,7 @@ public class PlayerActivity extends Activity {
             clearResumePosition(i);
         }
 
+        UpdatePlayerSurfaceMode();
         KeepScreenOn(false);
     }
 
@@ -1089,6 +1118,7 @@ public class PlayerActivity extends Activity {
             ResetPPView();
         }
 
+        UpdatePlayerSurfaceMode();
         ApplyAudioAll();
     }
 
@@ -1188,6 +1218,7 @@ public class PlayerActivity extends Activity {
             if (PlayerObj[i].Listener != null) PlayerObj[i].Listener.UpdatePosition(i);
         }
 
+        UpdatePlayerSurfaceMode();
         ApplyAudioAll();
     }
 
@@ -2642,6 +2673,7 @@ public class PlayerActivity extends Activity {
 
                 if (PlayerObj[4].player != null) PlayerObj[4].player.setPlayWhenReady(false);
 
+                UpdatePlayerSurfaceMode();
                 PlayerObjUpdateTrackSelector(4, trackSelectorPos);
             });
         }
@@ -3037,7 +3069,7 @@ public class PlayerActivity extends Activity {
             runOnUiThread(() -> {
                 //Reset the Z position of the PP player so it show above the other on android 7 and older
                 //Call this always before starting the player
-                if (IsUsingSurfaceView) {
+                if (isUsingSurfaceView(4)) {
                     SurfaceView PlayerSurfaceView = (SurfaceView) PlayerObj[4].playerView.getVideoSurfaceView();
 
                     if (PlayerSurfaceView != null) {
@@ -3505,7 +3537,8 @@ public class PlayerActivity extends Activity {
         @JavascriptInterface
         public void msetPlayer(boolean surface_view, boolean FullScreen) {
             runOnUiThread(() -> {
-                setPlayerSurface(surface_view);
+                PlayerSurfaceWorkaroundEnabled = !surface_view;
+                UpdatePlayerSurfaceMode();
 
                 if (FullScreen) updateVideSizePP(true);
                 else updateVideSize(false);
@@ -3523,6 +3556,7 @@ public class PlayerActivity extends Activity {
         public void EnableMultiStream(boolean MainBig, int offset) {
             runOnUiThread(() -> {
                 MultiStreamEnable = true;
+                UpdatePlayerSurfaceMode();
                 if (MainBig) SetMultiStreamMainBig(offset);
                 else SetMultiStream();
             });
