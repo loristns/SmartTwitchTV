@@ -493,23 +493,29 @@ public class PlayerActivity extends Activity {
             }
         }
 
-        PlayerView newPlayerView = findViewById(surfaceView ? idSurface[viewPairPosition] : idTexture[viewPairPosition]);
-        if (oldPlayerView == newPlayerView) return;
+        PlayerView surfacePlayerView = findViewById(idSurface[viewPairPosition]);
+        PlayerView texturePlayerView = findViewById(idTexture[viewPairPosition]);
+        PlayerView newPlayerView = surfaceView ? surfacePlayerView : texturePlayerView;
+        PlayerView unusedPlayerView = surfaceView ? texturePlayerView : surfacePlayerView;
 
-        if (oldPlayerView != null) {
-            int visibility = oldPlayerView.getVisibility();
-            ViewGroup.LayoutParams layoutParams = oldPlayerView.getLayoutParams();
+        int visibility = oldPlayerView == null ? (position == 0 ? View.VISIBLE : View.GONE) : oldPlayerView.getVisibility();
 
+        if (oldPlayerView != newPlayerView) {
             if (PlayerObj[position].player != null) {
                 PlayerView.switchTargetView(PlayerObj[position].player, oldPlayerView, newPlayerView);
+            } else if (oldPlayerView != null && oldPlayerView.getPlayer() != null) {
+                oldPlayerView.setPlayer(null);
             }
 
-            oldPlayerView.setVisibility(View.GONE);
-            newPlayerView.setLayoutParams(layoutParams);
-            newPlayerView.setVisibility(visibility);
-        } else {
-            newPlayerView.setVisibility(position == 0 ? View.VISIBLE : View.GONE);
+            if (oldPlayerView != null) {
+                ViewGroup.LayoutParams layoutParams = oldPlayerView.getLayoutParams();
+                oldPlayerView.setVisibility(View.GONE);
+                newPlayerView.setLayoutParams(layoutParams);
+            }
         }
+
+        newPlayerView.setVisibility(visibility);
+        unusedPlayerView.setVisibility(View.GONE);
 
         PlayerObj[position].playerView = newPlayerView;
 
@@ -525,6 +531,8 @@ public class PlayerActivity extends Activity {
             //and use TextureView only for secondary videos and previews.
             setPlayerSurface(i, !PlayerSurfaceWorkaroundEnabled || i == 0);
         }
+
+        if (PicturePicture) ResetPPView();
     }
 
     private boolean isUsingSurfaceView(int position) {
@@ -713,6 +721,13 @@ public class PlayerActivity extends Activity {
 
     private void ResetPPView() {
         VideoHolder.bringChildToFront(PlayerObj[1].playerView);
+
+        //The main player remains a SurfaceView in hybrid mode. Make sure a stale
+        //media-overlay flag from a previous PIP layout cannot cover the TextureView.
+        if (isUsingSurfaceView(0)) {
+            SurfaceView MainSurfaceView = (SurfaceView) PlayerObj[0].playerView.getVideoSurfaceView();
+            if (MainSurfaceView != null) MainSurfaceView.setZOrderMediaOverlay(false);
+        }
 
         //Reset the Z position of the PP player so it show above the other
         if (isUsingSurfaceView(0) && isUsingSurfaceView(1)) {
